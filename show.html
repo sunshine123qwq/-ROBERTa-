@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepLens - 双任务情感与立场分析可视化平台</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1f2937;
+            --accent-cyan: #06b6d4;
+            --accent-pink: #ec4899;
+            --accent-amber: #f59e0b;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --border-color: #374151;
+            --heatmap-1: #1e3a8a;
+            --heatmap-2: #3b82f6;
+            --heatmap-3: #06b6d4;
+            --heatmap-4: #f59e0b;
+            --heatmap-5: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        /* 背景动画网格 */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 1920px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 350px 1fr 400px;
+            gap: 20px;
+            height: 100vh;
+        }
+
+        /* 左侧：评论列表 */
+        .sidebar-left {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 40px rgba(6, 182, 212, 0.1);
+        }
+
+        .panel-header {
+            background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .comment-list {
+            overflow-y: auto;
+            flex: 1;
+            padding: 10px;
+        }
+
+        .comment-item {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .comment-item:hover {
+            border-color: var(--accent-cyan);
+            transform: translateX(5px);
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
+        }
+
+        .comment-item.active {
+            border-color: var(--accent-pink);
+            background: rgba(236, 72, 153, 0.1);
+            box-shadow: 0 0 30px rgba(236, 72, 153, 0.3);
+        }
+
+        .comment-text {
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 8px;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .comment-meta {
+            display: flex;
+            gap: 10px;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .badge-sentiment-pos { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+        .badge-sentiment-neg { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
+        .badge-sentiment-neu { background: rgba(245, 158, 11, 0.2); color: var(--accent-amber); }
+        .badge-stance-favor { background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); }
+        .badge-stance-against { background: rgba(236, 72, 153, 0.2); color: var(--accent-pink); }
+
+        /* 中间：可视化区域 */
+        .main-visualization {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .viz-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .viz-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-tertiary);
+        }
+
+        .viz-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .viz-content {
+            padding: 20px;
+            position: relative;
+        }
+
+        /* 三级热力图样式 */
+        .heatmap-container {
+            font-family: 'Noto Sans SC', sans-serif;
+            line-height: 2;
+            font-size: 18px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            min-height: 200px;
+        }
+
+        .heatmap-char {
+            display: inline-block;
+            padding: 2px 4px;
+            margin: 0 1px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            border: 1px solid transparent;
+        }
+
+        .heatmap-char:hover {
+            transform: scale(1.2);
+            z-index: 10;
+            box-shadow: 0 0 10px currentColor;
+        }
+
+        .heatmap-level-1 { background: rgba(30, 58, 138, 0.6); color: #93c5fd; border-color: #1e40af; }
+        .heatmap-level-2 { background: rgba(59, 130, 246, 0.6); color: #bfdbfe; border-color: #3b82f6; }
+        .heatmap-level-3 { background: rgba(6, 182, 212, 0.6); color: #a5f3fc; border-color: #06b6d4; }
+        .heatmap-level-4 { background: rgba(245, 158, 11, 0.6); color: #fde68a; border-color: #f59e0b; }
+        .heatmap-level-5 { background: rgba(239, 68, 68, 0.6); color: #fecaca; border-color: #ef4444; }
+
+        .subclause-highlight {
+            background: linear-gradient(120deg, rgba(236, 72, 153, 0.3) 0%, rgba(6, 182, 212, 0.3) 100%);
+            border: 1px solid var(--accent-pink);
+            border-radius: 6px;
+            padding: 2px 8px;
+            margin: 0 2px;
+            box-shadow: 0 0 15px rgba(236, 72, 153, 0.4);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 15px rgba(236, 72, 153, 0.4); }
+            50% { box-shadow: 0 0 25px rgba(236, 72, 153, 0.6); }
+        }
+
+        /* 网络图容器 */
+        #network-graph {
+            width: 100%;
+            height: 400px;
+            background: radial-gradient(circle at center, rgba(6, 182, 212, 0.05) 0%, transparent 70%);
+        }
+
+        .node {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .node:hover {
+            filter: drop-shadow(0 0 8px currentColor);
+        }
+
+        .link {
+            stroke-opacity: 0.6;
+            transition: all 0.3s ease;
+        }
+
+        .link.active {
+            stroke-opacity: 1;
+            stroke-width: 3px;
+            filter: drop-shadow(0 0 5px currentColor);
+        }
+
+        /* 右侧：对抗样本与控制面板 */
+        .sidebar-right {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .control-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 0 40px rgba(6, 182, 212, 0.1);
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .btn {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Noto Sans SC', sans-serif;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-bottom: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, #0891b2 100%);
+            border-color: var(--accent-cyan);
+            font-weight: 700;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 0 30px rgba(6, 182, 212, 0.5);
+        }
+
+        .adversarial-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 40px rgba(236, 72, 153, 0.1);
+        }
+
+        .adversarial-list {
+            overflow-y: auto;
+            padding: 15px;
+            flex: 1;
+        }
+
+        .adversarial-item {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .adversarial-item:hover {
+            border-color: var(--accent-pink);
+            transform: translateX(-5px);
+            box-shadow: 0 0 20px rgba(236, 72, 153, 0.2);
+        }
+
+        .adversarial-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: var(--accent-pink);
+        }
+
+        .adv-type {
+            font-size: 11px;
+            color: var(--accent-pink);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .adv-text {
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 10px;
+            font-family: 'Noto Sans SC', sans-serif;
+        }
+
+        .adv-changes {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .change-tag {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .change-tag.added {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        .adv-impact {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .impact-bar {
+            width: 100px;
+            height: 4px;
+            background: var(--bg-primary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .impact-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-pink), var(--accent-amber));
+            transition: width 0.5s ease;
+        }
+
+        /* 工具提示 */
+        .tooltip {
+            position: absolute;
+            padding: 10px;
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+            max-width: 250px;
+        }
+
+        /* 统计信息 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-box {
+            background: rgba(6, 182, 212, 0.1);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            border-radius: 6px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-cyan);
+        }
+
+        /* 加载动画 */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(6, 182, 212, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--accent-cyan);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 标签页 */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            background: rgba(6, 182, 212, 0.1);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .tab:hover:not(.active) {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* 响应式 */
+        @media (max-width: 1400px) {
+            .container {
+                grid-template-columns: 300px 1fr 350px;
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto;
+            }
+        }
+
+        .legend {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <div class="container">
+        <!-- 左侧：评论列表 -->
+        <div class="sidebar-left">
+            <div class="panel-header">
+                <div style="width: 8px; height: 8px; background: var(--accent-cyan); border-radius: 50%; box-shadow: 0 0 10px var(--accent-cyan);"></div>
+                <div class="panel-title">评论数据集</div>
+            </div>
+            <div class="comment-list" id="commentList">
+                <!-- 动态生成 -->
+            </div>
+            <div style="padding: 15px; border-top: 1px solid var(--border-color);">
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-value" id="totalComments">0</div>
+                        <div class="stat-label">总评论数</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="avgConfidence">0%</div>
+                        <div class="stat-label">平均置信度</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中间：可视化 -->
+        <div class="main-visualization">
+            <!-- 三级热力图 -->
+            <div class="viz-panel">
+                <div class="viz-header">
+                    <div class="viz-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="9" x2="15" y2="15"></line>
+                            <line x1="15" y1="9" x2="9" y2="15"></line>
+                        </svg>
+                        三级热力图分析 (Tri-level Heatmap)
+                    </div>
+                    <div class="legend">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: var(--heatmap-1)"></div>
+                            <span>低重要性</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: var(--heatmap-3)"></div>
+                            <span>中重要性</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: var(--heatmap-5)"></div>
+                            <span>高重要性</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="viz-content">
+                    <div class="tabs">
+                        <button class="tab active" onclick="switchHeatmapMode('char')">字符级 (Character)</button>
+                        <button class="tab" onclick="switchHeatmapMode('word')">词语级 (Word)</button>
+                        <button class="tab" onclick="switchHeatmapMode('clause')">子句级 (Clause)</button>
+                    </div>
+                    <div class="heatmap-container" id="heatmapContainer">
+                        <div style="text-align: center; color: var(--text-secondary); padding: 40px;">
+                            请选择左侧评论查看热力图分析
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 交互词对网络 -->
+            <div class="viz-panel">
+                <div class="viz-header">
+                    <div class="viz-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                        交互词对网络 (Interactive Word Pair Network)
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-secondary);">
+                        <span style="color: var(--accent-cyan);">●</span> 情感驱动节点
+                        <span style="margin-left: 10px; color: var(--accent-pink);">●</span> 立场驱动节点
+                    </div>
+                </div>
+                <div class="viz-content" style="padding: 0;">
+                    <div id="network-graph"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：对抗样本与控制 -->
+        <div class="sidebar-right">
+            <div class="control-panel">
+                <div class="panel-title" style="margin-bottom: 15px;">分析控制</div>
+                
+                <div class="control-group">
+                    <label class="control-label">当前选中评论</label>
+                    <div id="selectedText" style="font-size: 13px; color: var(--text-secondary); line-height: 1.4; padding: 10px; background: var(--bg-tertiary); border-radius: 6px; border-left: 3px solid var(--accent-cyan);">
+                        未选择
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">预测结果</label>
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <div style="flex: 1; text-align: center; padding: 10px; background: var(--bg-tertiary); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">情感</div>
+                            <div id="predSentiment" style="font-weight: 700; color: var(--accent-cyan);">-</div>
+                        </div>
+                        <div style="flex: 1; text-align: center; padding: 10px; background: var(--bg-tertiary); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">立场</div>
+                            <div id="predStance" style="font-weight: 700; color: var(--accent-pink);">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" onclick="generateAdversarial()">
+                    <span id="advBtnText">生成对抗样本变体</span>
+                </button>
+                
+                <button class="btn" onclick="exportAnalysis()">
+                    导出分析报告
+                </button>
+            </div>
+
+            <div class="adversarial-panel">
+                <div class="panel-header">
+                    <div class="panel-title">对抗样本建议</div>
+                    <div style="font-size: 11px; color: var(--text-secondary);">3种变体</div>
+                </div>
+                <div class="adversarial-list" id="adversarialList">
+                    <div style="text-align: center; color: var(--text-secondary); padding: 40px; font-size: 13px;">
+                        点击"生成对抗样本变体"查看结果
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 模拟数据 - 基于你的Python代码中的示例
+        const sampleComments = [
+            {
+                id: 1,
+                text: "这个产品真的太棒了，完全超出预期！强烈支持！",
+                sentiment: "positive",
+                stance: "favor",
+                sentimentConf: 0.95,
+                stanceConf: 0.92,
+                analysis: {
+                    charImportance: [0.1,0.1,0.2,0.3,0.5,0.6,0.8,0.9,0.9,0.8,0.3,0.2,0.4,0.5,0.6,0.7,0.8,0.9,0.9,0.8,0.1,0.3,0.5,0.8,0.9],
+                    wordImportance: {"这个":0.1,"产品":0.3,"真的":0.6,"太棒":0.9,"完全":0.5,"超出":0.7,"预期":0.8,"强烈":0.85,"支持":0.9},
+                    clauses: [
+                        {text: "这个产品真的太棒了", importance: 0.8, type: "sentiment"},
+                        {text: "完全超出预期", importance: 0.7, type: "sentiment"},
+                        {text: "强烈支持", importance: 0.9, type: "stance"}
+                    ],
+                    network: {
+                        nodes: [
+                            {id: "产品", group: "sentiment", importance: 0.8},
+                            {id: "棒", group: "sentiment", importance: 0.95},
+                            {id: "超出", group: "sentiment", importance: 0.7},
+                            {id: "预期", group: "sentiment", importance: 0.75},
+                            {id: "支持", group: "stance", importance: 0.9},
+                            {id: "强烈", group: "stance", importance: 0.85}
+                        ],
+                        links: [
+                            {source: "产品", target: "棒", value: 0.9},
+                            {source: "棒", target: "超出", value: 0.6},
+                            {source: "超出", target: "预期", value: 0.8},
+                            {source: "强烈", target: "支持", value: 0.95},
+                            {source: "棒", target: "支持", value: 0.5}
+                        ]
+                    }
+                }
+            },
+            {
+                id: 2,
+                text: "虽然价格有点贵，但是质量很好，还是支持的。",
+                sentiment: "positive",
+                stance: "favor",
+                sentimentConf: 0.78,
+                stanceConf: 0.75,
+                analysis: {
+                    charImportance: Array(20).fill(0).map(() => Math.random()),
+                    wordImportance: {"虽然":0.2,"价格":0.4,"有点":0.3,"贵":0.5,"但是":0.3,"质量":0.8,"很好":0.85,"支持":0.8},
+                    clauses: [
+                        {text: "虽然价格有点贵", importance: 0.5, type: "contrast"},
+                        {text: "但是质量很好", importance: 0.8, type: "sentiment"},
+                        {text: "还是支持的", importance: 0.75, type: "stance"}
+                    ],
+                    network: {
+                        nodes: [
+                            {id: "价格", group: "sentiment", importance: 0.6},
+                            {id: "贵", group: "sentiment", importance: 0.5},
+                            {id: "质量", group: "sentiment", importance: 0.9},
+                            {id: "好", group: "sentiment", importance: 0.85},
+                            {id: "支持", group: "stance", importance: 0.8}
+                        ],
+                        links: [
+                            {source: "价格", target: "贵", value: 0.9},
+                            {source: "质量", target: "好", value: 0.95},
+                            {source: "贵", target: "质量", value: 0.4},
+                            {source: "好", target: "支持", value: 0.7}
+                        ]
+                    }
+                }
+            },
+            {
+                id: 3,
+                text: "一般般吧，没什么特别的感受，保持中立。",
+                sentiment: "neutral",
+                stance: "neutral",
+                sentimentConf: 0.82,
+                stanceConf: 0.88,
+                analysis: {
+                    charImportance: Array(18).fill(0).map(() => Math.random() * 0.5),
+                    wordImportance: {"一般":0.6,"特别":0.4,"感受":0.3,"中立":0.9},
+                    clauses: [
+                        {text: "一般般吧", importance: 0.6, type: "sentiment"},
+                        {text: "没什么特别的感受", importance: 0.4, type: "sentiment"},
+                        {text: "保持中立", importance: 0.9, type: "stance"}
+                    ],
+                    network: {
+                        nodes: [
+                            {id: "一般", group: "sentiment", importance: 0.7},
+                            {id: "特别", group: "sentiment", importance: 0.4},
+                            {id: "感受", group: "sentiment", importance: 0.3},
+                            {id: "中立", group: "stance", importance: 0.95}
+                        ],
+                        links: [
+                            {source: "一般", target: "特别", value: 0.5},
+                            {source: "特别", target: "感受", value: 0.6},
+                            {source: "感受", target: "中立", value: 0.4}
+                        ]
+                    }
+                }
+            },
+            {
+                id: 4,
+                text: "太差了，完全不值得购买，坚决反对这种做法。",
+                sentiment: "negative",
+                stance: "against",
+                sentimentConf: 0.91,
+                stanceConf: 0.94,
+                analysis: {
+                    charImportance: Array(19).fill(0).map(() => Math.random()),
+                    wordImportance: {"太差":0.9,"完全":0.7,"值得":0.6,"购买":0.5,"坚决":0.85,"反对":0.95,"做法":0.7},
+                    clauses: [
+                        {text: "太差了", importance: 0.9, type: "sentiment"},
+                        {text: "完全不值得购买", importance: 0.8, type: "sentiment"},
+                        {text: "坚决反对这种做法", importance: 0.95, type: "stance"}
+                    ],
+                    network: {
+                        nodes: [
+                            {id: "差", group: "sentiment", importance: 0.95},
+                            {id: "值得", group: "sentiment", importance: 0.6},
+                            {id: "购买", group: "sentiment", importance: 0.5},
+                            {id: "坚决", group: "stance", importance: 0.9},
+                            {id: "反对", group: "stance", importance: 0.95}
+                        ],
+                        links: [
+                            {source: "差", target: "值得", value: 0.4},
+                            {source: "值得", target: "购买", value: 0.8},
+                            {source: "坚决", target: "反对", value: 0.95},
+                            {source: "差", target: "反对", value: 0.7}
+                        ]
+                    }
+                }
+            },
+            {
+                id: 5,
+                text: "这个政策虽然有争议，但总体来说是正确的，我支持。",
+                sentiment: "positive",
+                stance: "favor",
+                sentimentConf: 0.73,
+                stanceConf: 0.81,
+                analysis: {
+                    charImportance: Array(24).fill(0).map(() => Math.random()),
+                    wordImportance: {"政策":0.5,"争议":0.4,"总体":0.6,"正确":0.8,"支持":0.85},
+                    clauses: [
+                        {text: "这个政策虽然有争议", importance: 0.5, type: "contrast"},
+                        {text: "但总体来说是正确的", importance: 0.75, type: "sentiment"},
+                        {text: "我支持", importance: 0.85, type: "stance"}
+                    ],
+                    network: {
+                        nodes: [
+                            {id: "政策", group: "neutral", importance: 0.5},
+                            {id: "争议", group: "sentiment", importance: 0.4},
+                            {id: "总体", group: "sentiment", importance: 0.6},
+                            {id: "正确", group: "sentiment", importance: 0.8},
+                            {id: "支持", group: "stance", importance: 0.85}
+                        ],
+                        links: [
+                            {source: "政策", target: "争议", value: 0.6},
+                            {source: "争议", target: "正确", value: 0.3},
+                            {source: "总体", target: "正确", value: 0.8},
+                            {source: "正确", target: "支持", value: 0.75}
+                        ]
+                    }
+                }
+            }
+        ];
+
+        let currentComment = null;
+        let heatmapMode = 'char';
+        let simulation = null;
+
+        // 初始化
+        function init() {
+            renderCommentList();
+            updateStats();
+            
+            // 选择第一条评论
+            selectComment(sampleComments[0]);
+        }
+
+        function renderCommentList() {
+            const container = document.getElementById('commentList');
+            container.innerHTML = sampleComments.map(comment => `
+                <div class="comment-item ${currentComment?.id === comment.id ? 'active' : ''}" 
+                     onclick="selectComment(sampleComments.find(c => c.id === ${comment.id}))">
+                    <div class="comment-text">${comment.text}</div>
+                    <div class="comment-meta">
+                        <span class="badge badge-sentiment-${comment.sentiment}">
+                            ${comment.sentiment === 'positive' ? '正面' : comment.sentiment === 'negative' ? '负面' : '中性'}
+                        </span>
+                        <span class="badge badge-stance-${comment.stance}">
+                            ${comment.stance === 'favor' ? '支持' : comment.stance === 'against' ? '反对' : '中立'}
+                        </span>
+                        <span style="color: var(--text-secondary);">${(comment.sentimentConf * 100).toFixed(0)}%</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function selectComment(comment) {
+            currentComment = comment;
+            renderCommentList();
+            
+            // 更新控制面板
+            document.getElementById('selectedText').textContent = comment.text;
+            document.getElementById('predSentiment').textContent = 
+                comment.sentiment === 'positive' ? '正面' : 
+                comment.sentiment === 'negative' ? '负面' : '中性';
+            document.getElementById('predSentiment').style.color = 
+                comment.sentiment === 'positive' ? 'var(--accent-green)' : 
+                comment.sentiment === 'negative' ? 'var(--accent-red)' : 'var(--accent-amber)';
+            
+            document.getElementById('predStance').textContent = 
+                comment.stance === 'favor' ? '支持' : 
+                comment.stance === 'against' ? '反对' : '中立';
+            
+            // 渲染可视化
+            renderHeatmap();
+            renderNetwork();
+            
+            // 清空对抗样本
+            document.getElementById('adversarialList').innerHTML = `
+                <div style="text-align: center; color: var(--text-secondary); padding: 40px; font-size: 13px;">
+                    点击"生成对抗样本变体"查看结果
+                </div>
+            `;
+        }
+
+        function switchHeatmapMode(mode) {
+            heatmapMode = mode;
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+            renderHeatmap();
+        }
+
+        function renderHeatmap() {
+            const container = document.getElementById('heatmapContainer');
+            if (!currentComment) return;
+
+            const text = currentComment.text;
+            let html = '';
+
+            if (heatmapMode === 'char') {
+                // 字符级热力图
+                const importance = currentComment.analysis.charImportance;
+                html = text.split('').map((char, i) => {
+                    const imp = importance[i] || 0;
+                    const level = Math.ceil(imp * 5);
+                    const levelClass = level === 0 ? '' : `heatmap-level-${level}`;
+                    return `<span class="heatmap-char ${levelClass}" 
+                                data-importance="${imp.toFixed(2)}"
+                                onmouseover="showTooltip(event, '重要性: ${(imp*100).toFixed(0)}%')"
+                                onmouseout="hideTooltip()">${char}</span>`;
+                }).join('');
+            } else if (heatmapMode === 'word') {
+                // 词语级热力图
+                const words = text.match(/[\u4e00-\u9fa5]+|[^[\u4e00-\u9fa5\s]+/g) || [];
+                html = words.map(word => {
+                    const imp = currentComment.analysis.wordImportance[word] || Math.random() * 0.3;
+                    const level = Math.ceil(imp * 5);
+                    const levelClass = level === 0 ? '' : `heatmap-level-${level}`;
+                    return `<span class="heatmap-char ${levelClass}" 
+                                style="margin: 0 3px; padding: 4px 8px;"
+                                data-importance="${imp.toFixed(2)}"
+                                onmouseover="showTooltip(event, '${word}: ${(imp*100).toFixed(0)}%')"
+                                onmouseout="hideTooltip()">${word}</span>`;
+                }).join('');
+            } else if (heatmapMode === 'clause') {
+                // 子句级高亮
+                const clauses = currentComment.analysis.clauses;
+                let remainingText = text;
+                
+                clauses.forEach((clause, i) => {
+                    const idx = remainingText.indexOf(clause.text);
+                    if (idx !== -1) {
+                        if (idx > 0) {
+                            html += `<span class="heatmap-char">${remainingText.slice(0, idx)}</span>`;
+                        }
+                        const color = clause.type === 'stance' ? 'var(--accent-pink)' : 
+                                     clause.type === 'contrast' ? 'var(--accent-amber)' : 'var(--accent-cyan)';
+                        html += `<span class="subclause-highlight" 
+                                     style="border-color: ${color}; box-shadow: 0 0 15px ${color}40;"
+                                     onmouseover="showTooltip(event, '子句重要性: ${(clause.importance*100).toFixed(0)}%<br>类型: ${clause.type}')"
+                                     onmouseout="hideTooltip()">${clause.text}</span>`;
+                        remainingText = remainingText.slice(idx + clause.text.length);
+                    }
+                });
+                if (remainingText) {
+                    html += `<span class="heatmap-char">${remainingText}</span>`;
+                }
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderNetwork() {
+            const container = document.getElementById('network-graph');
+            container.innerHTML = '';
+            
+            if (!currentComment) return;
+
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            
+            const svg = d3.select('#network-graph')
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            // 添加发光滤镜
+            const defs = svg.append('defs');
+            const filter = defs.append('filter')
+                .attr('id', 'glow');
+            filter.append('feGaussianBlur')
+                .attr('stdDeviation', '3.5')
+                .attr('result', 'coloredBlur');
+            const feMerge = filter.append('feMerge');
+            feMerge.append('feMergeNode').attr('in', 'coloredBlur');
+            feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+            const data = currentComment.analysis.network;
+            
+            // 创建力导向图
+            simulation = d3.forceSimulation(data.nodes)
+                .force('link', d3.forceLink(data.links).id(d => d.id).distance(100))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(d => 20 + d.importance * 30));
+
+            // 绘制连线
+            const link = svg.append('g')
+                .selectAll('line')
+                .data(data.links)
+                .enter().append('line')
+                .attr('class', 'link')
+                .attr('stroke', d => {
+                    const gradient = svg.append('defs').append('linearGradient')
+                        .attr('id', `gradient-${d.source.id || d.source}-${d.target.id || d.target}`)
+                        .attr('gradientUnits', 'userSpaceOnUse');
+                    
+                    const sourceNode = typeof d.source === 'string' ? 
+                        data.nodes.find(n => n.id === d.source) : d.source;
+                    const targetNode = typeof d.target === 'string' ? 
+                        data.nodes.find(n => n.id === d.target) : d.target;
+                    
+                    const sourceColor = sourceNode.group === 'stance' ? '#ec4899' : 
+                                       sourceNode.group === 'sentiment' ? '#06b6d4' : '#f59e0b';
+                    const targetColor = targetNode.group === 'stance' ? '#ec4899' : 
+                                       targetNode.group === 'sentiment' ? '#06b6d4' : '#f59e0b';
+                    
+                    gradient.append('stop').attr('offset', '0%').attr('stop-color', sourceColor);
+                    gradient.append('stop').attr('offset', '100%').attr('stop-color', targetColor);
+                    
+                    return `url(#gradient-${d.source.id || d.source}-${d.target.id || d.target})`;
+                })
+                .attr('stroke-width', d => Math.sqrt(d.value * 5));
+
+            // 绘制节点
+            const node = svg.append('g')
+                .selectAll('g')
+                .data(data.nodes)
+                .enter().append('g')
+                .attr('class', 'node')
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+
+            // 节点圆形
+            node.append('circle')
+                .attr('r', d => 15 + d.importance * 20)
+                .attr('fill', d => {
+                    if (d.group === 'sentiment') return 'var(--accent-cyan)';
+                    if (d.group === 'stance') return 'var(--accent-pink)';
+                    return 'var(--accent-amber)';
+                })
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2)
+                .style('filter', 'url(#glow)');
+
+            // 节点文字
+            node.append('text')
+                .text(d => d.id)
+                .attr('text-anchor', 'middle')
+                .attr('dy', '.35em')
+                .attr('fill', '#fff')
+                .style('font-size', '12px')
+                .style('font-weight', 'bold')
+                .style('pointer-events', 'none');
+
+            // 交互
+            node.on('mouseover', function(event, d) {
+                // 高亮相关连线
+                link.classed('active', l => l.source.id === d.id || l.target.id === d.id);
+                
+                // 显示工具提示
+                const type = d.group === 'sentiment' ? '情感驱动' : 
+                            d.group === 'stance' ? '立场驱动' : '中性';
+                showTooltip(event, `<strong>${d.id}</strong><br>类型: ${type}<br>重要性: ${(d.importance*100).toFixed(0)}%`);
+            })
+            .on('mouseout', function() {
+                link.classed('active', false);
+                hideTooltip();
+            });
+
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        function generateAdversarial() {
+            if (!currentComment) return;
+            
+            const btn = document.querySelector('.btn-primary');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="loading"></span> 生成中...';
+            btn.disabled = true;
+
+            // 模拟生成延迟
+            setTimeout(() => {
+                const adversarials = generateAdversarialVariants(currentComment);
+                renderAdversarials(adversarials);
+                
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }, 1500);
+        }
+
+        function generateAdversarialVariants(comment) {
+            const text = comment.text;
+            const variants = [];
+
+            // 变体1: 同义词替换 (TextFooler风格)
+            const synonymReplacements = {
+                '棒': '优秀', '支持': '赞同', '好': '不错',
+                '差': '糟糕', '反对': '抵制', '贵': '昂贵',
+                '正确': '恰当', '争议': '争论'
+            };
+            
+            let variant1 = text;
+            let changes1 = [];
+            for (let [orig, repl] of Object.entries(synonymReplacements)) {
+                if (text.includes(orig)) {
+                    variant1 = variant1.replace(orig, repl);
+                    changes1.push(`-${orig} +${repl}`);
+                    break; // 只替换一个
+                }
+            }
+            
+            variants.push({
+                type: '同义词替换 (Synonym)',
+                text: variant1,
+                changes: changes1.length ? changes1 : ['无显著变化'],
+                impact: 0.65,
+                prediction: {
+                    sentiment: comment.sentiment,
+                    stance: comment.stance,
+                    confidence: comment.sentimentConf * 0.85
+                }
+            });
+
+            // 变体2: 插入干扰词 (BERT-Attack风格)
+            const distractors = ['可能', '大概', '似乎', '我觉得'];
+            const randomDistractor = distractors[Math.floor(Math.random() * distractors.length)];
+            const insertPos = Math.floor(text.length / 2);
+            const variant2 = text.slice(0, insertPos) + randomDistractor + text.slice(insertPos);
+            
+            variants.push({
+                type: '插入干扰 (Insertion)',
+                text: variant2,
+                changes: [`+${randomDistractor}`],
+                impact: 0.45,
+                prediction: {
+                    sentiment: comment.sentiment,
+                    stance: comment.stance === 'favor' ? 'neutral' : comment.stance,
+                    confidence: comment.stanceConf * 0.75
+                }
+            });
+
+            // 变体3: 句式重组 + 情感反转尝试
+            let variant3 = text;
+            if (text.includes('支持')) {
+                variant3 = text.replace('支持', '持保留意见');
+            } else if (text.includes('反对')) {
+                variant3 = text.replace('反对', '有所质疑');
+            } else if (text.includes('中立')) {
+                variant3 = text.replace('中立', '略微倾向');
+            }
+            
+            variants.push({
+                type: '语义偏移 (Semantic Shift)',
+                text: variant3,
+                changes: [text.includes('支持') ? '-支持 +持保留意见' : 
+                         text.includes('反对') ? '-反对 +有所质疑' : '-中立 +略微倾向'],
+                impact: 0.82,
+                prediction: {
+                    sentiment: comment.sentiment === 'positive' ? 'neutral' : comment.sentiment,
+                    stance: comment.stance === 'favor' ? 'neutral' : 
+                           comment.stance === 'against' ? 'neutral' : 'favor',
+                    confidence: 0.68
+                }
+            });
+
+            return variants;
+        }
+
+        function renderAdversarials(adversarials) {
+            const container = document.getElementById('adversarialList');
+            container.innerHTML = adversarials.map((adv, i) => `
+                <div class="adversarial-item">
+                    <div class="adv-type">变体 ${i+1}: ${adv.type}</div>
+                    <div class="adv-text">${adv.text}</div>
+                    <div class="adv-changes">
+                        ${adv.changes.map(c => `
+                            <span class="change-tag ${c.startsWith('+') ? 'added' : ''}">${c}</span>
+                        `).join('')}
+                    </div>
+                    <div class="adv-impact">
+                        <span>攻击强度</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div class="impact-bar">
+                                <div class="impact-fill" style="width: ${adv.impact * 100}%"></div>
+                            </div>
+                            <span>${(adv.impact * 100).toFixed(0)}%</span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px; font-size: 11px; color: var(--text-secondary);">
+                        预测: ${adv.prediction.sentiment === 'positive' ? '正面' : adv.prediction.sentiment === 'negative' ? '负面' : '中性'} / 
+                        ${adv.prediction.stance === 'favor' ? '支持' : adv.prediction.stance === 'against' ? '反对' : '中立'}
+                        (置信度: ${(adv.prediction.confidence * 100).toFixed(0)}%)
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateStats() {
+            document.getElementById('totalComments').textContent = sampleComments.length;
+            const avgConf = sampleComments.reduce((sum, c) => sum + c.sentimentConf, 0) / sampleComments.length;
+            document.getElementById('avgConfidence').textContent = (avgConf * 100).toFixed(0) + '%';
+        }
+
+        function showTooltip(event, content) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.innerHTML = content;
+            tooltip.style.opacity = '1';
+            tooltip.style.left = event.pageX + 10 + 'px';
+            tooltip.style.top = event.pageY + 10 + 'px';
+        }
+
+        function hideTooltip() {
+            document.getElementById('tooltip').style.opacity = '0';
+        }
+
+        function exportAnalysis() {
+            if (!currentComment) return;
+            
+            const analysis = {
+                comment: currentComment,
+                timestamp: new Date().toISOString(),
+                heatmapMode: heatmapMode,
+                adversarials: document.querySelectorAll('.adversarial-item').length
+            };
+            
+            const blob = new Blob([JSON.stringify(analysis, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `analysis_${currentComment.id}_${Date.now()}.json`;
+            a.click();
+        }
+
+        // 窗口大小改变时重绘网络图
+        window.addEventListener('resize', () => {
+            if (currentComment) renderNetwork();
+        });
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
